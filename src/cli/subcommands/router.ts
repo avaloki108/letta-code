@@ -4,6 +4,7 @@ import { runChannelsSubcommand } from "./channels";
 import { runConnectSubcommand } from "./connect";
 import { runCronSubcommand } from "./cron";
 import { runListenSubcommand } from "./listen.tsx";
+import { runLogoutSubcommand } from "./logout";
 import { runMemfsSubcommand } from "./memfs";
 import { runMessagesSubcommand } from "./messages";
 
@@ -32,6 +33,8 @@ export async function runSubcommand(argv: string[]): Promise<number | null> {
       return runCronSubcommand(rest);
     case "channels":
       return runChannelsSubcommand(rest);
+    case "logout":
+      return runLogoutSubcommand(rest);
     default:
       return null;
   }
