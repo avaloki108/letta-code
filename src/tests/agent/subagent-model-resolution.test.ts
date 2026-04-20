@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { getMemoryFilesystemRoot } from "../../agent/memoryFilesystem";
 import type { SubagentConfig } from "../../agent/subagents";
 import {
   buildSubagentArgs,
+  resolveMemorySubagentTargetDir,
   resolveSubagentLauncher,
   resolveSubagentModel,
   resolveSubagentWorkingDirectory,
@@ -192,6 +194,32 @@ describe("buildSubagentArgs", () => {
 
     expect(args).toContain("--permission-mode");
     expect(args).toContain("memory");
+  });
+});
+
+describe("resolveMemorySubagentTargetDir", () => {
+  test("prefers the parent agent's memfs root over inherited MEMORY_DIR", () => {
+    const targetDir = resolveMemorySubagentTargetDir(
+      "agent-parent",
+      {
+        MEMORY_DIR: "/tmp/stale-memory-dir",
+        LETTA_MEMORY_DIR: "/tmp/stale-memory-dir",
+      } as NodeJS.ProcessEnv,
+      "/Users/test",
+    );
+
+    expect(targetDir).toBe(
+      getMemoryFilesystemRoot("agent-parent", "/Users/test"),
+    );
+  });
+
+  test("falls back to PARENT_MEMORY_DIR when provided explicitly", () => {
+    const targetDir = resolveMemorySubagentTargetDir("agent-parent", {
+      PARENT_MEMORY_DIR: "/tmp/parent-memory",
+      MEMORY_DIR: "/tmp/stale-memory-dir",
+    } as NodeJS.ProcessEnv);
+
+    expect(targetDir).toBe("/tmp/parent-memory");
   });
 });
 

@@ -96,7 +96,8 @@ echo "PARENT_AGENT_ID=$LETTA_PARENT_AGENT_ID"
 Use the printed values (e.g., `agent-abc123...`) in the trailers. If a variable is empty or unset, omit that trailer. Never write a literal variable name like `$LETTA_AGENT_ID` or `$AGENT_ID` in the commit message.
 
 ```bash
-cd $MEMORY_DIR
+TARGET_MEMORY_DIR="${PARENT_MEMORY_DIR:-$MEMORY_DIR}"
+cd "$TARGET_MEMORY_DIR"
 git add -A
 git commit --author="Reflection Subagent <<ACTUAL_AGENT_ID>@letta.com>" -m "<type>(reflection): <summary> 🔮
 

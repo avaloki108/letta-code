@@ -253,3 +253,34 @@ test("getShellEnv injects MEMORY_DIR aliases when memfs is enabled", () => {
     }
   });
 });
+
+test("getShellEnv preserves parent memory root for memory-mode subagents", () => {
+  withTemporaryAgentEnv(`agent-test-${Date.now()}`, () => {
+    const originalIsMemfsEnabled =
+      settingsManager.isMemfsEnabled.bind(settingsManager);
+    const originalParentMemoryDir = process.env.PARENT_MEMORY_DIR;
+    process.env.PARENT_MEMORY_DIR = "/tmp/parent-memory-dir";
+    (
+      settingsManager as unknown as { isMemfsEnabled: (id: string) => boolean }
+    ).isMemfsEnabled = () => false;
+
+    try {
+      const env = getShellEnv();
+      expect(env.PARENT_MEMORY_DIR).toBe("/tmp/parent-memory-dir");
+      expect(env.LETTA_MEMORY_DIR).toBe("/tmp/parent-memory-dir");
+      expect(env.MEMORY_DIR).toBe("/tmp/parent-memory-dir");
+    } finally {
+      (
+        settingsManager as unknown as {
+          isMemfsEnabled: (id: string) => boolean;
+        }
+      ).isMemfsEnabled = originalIsMemfsEnabled;
+
+      if (originalParentMemoryDir === undefined) {
+        delete process.env.PARENT_MEMORY_DIR;
+      } else {
+        process.env.PARENT_MEMORY_DIR = originalParentMemoryDir;
+      }
+    }
+  });
+});

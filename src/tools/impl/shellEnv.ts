@@ -214,23 +214,33 @@ export function getShellEnv(): NodeJS.ProcessEnv {
     }
   }
 
+  const parentMemoryDir = env.PARENT_MEMORY_DIR?.trim();
+
   if (agentId) {
     env.LETTA_AGENT_ID = agentId;
     env.AGENT_ID = agentId;
 
-    try {
-      if (settingsManager.isMemfsEnabled(agentId)) {
-        const memoryDir = getMemoryFilesystemRoot(agentId);
-        env.LETTA_MEMORY_DIR = memoryDir;
-        env.MEMORY_DIR = memoryDir;
-      } else {
-        // Clear inherited/stale memory-dir vars for non-memfs agents.
-        delete env.LETTA_MEMORY_DIR;
-        delete env.MEMORY_DIR;
+    if (parentMemoryDir) {
+      env.LETTA_MEMORY_DIR = parentMemoryDir;
+      env.MEMORY_DIR = parentMemoryDir;
+    } else {
+      try {
+        if (settingsManager.isMemfsEnabled(agentId)) {
+          const memoryDir = getMemoryFilesystemRoot(agentId);
+          env.LETTA_MEMORY_DIR = memoryDir;
+          env.MEMORY_DIR = memoryDir;
+        } else {
+          // Clear inherited/stale memory-dir vars for non-memfs agents.
+          delete env.LETTA_MEMORY_DIR;
+          delete env.MEMORY_DIR;
+        }
+      } catch {
+        // Settings may not be initialized in tests/startup; preserve inherited values.
       }
-    } catch {
-      // Settings may not be initialized in tests/startup; preserve inherited values.
     }
+  } else if (parentMemoryDir) {
+    env.LETTA_MEMORY_DIR = parentMemoryDir;
+    env.MEMORY_DIR = parentMemoryDir;
   }
   // Inject conversation ID if available
   let convId: string | undefined;

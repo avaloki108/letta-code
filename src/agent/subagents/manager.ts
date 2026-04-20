@@ -21,7 +21,6 @@ import {
   SYSTEM_REMINDER_OPEN,
 } from "../../constants";
 import { cliPermissions } from "../../permissions/cli";
-import { resolveAllowedMemoryRoots } from "../../permissions/memoryScope";
 import { permissionMode } from "../../permissions/mode";
 import { sessionPermissions } from "../../permissions/session";
 import { settingsManager } from "../../settings-manager";
@@ -30,6 +29,7 @@ import { getErrorMessage } from "../../utils/error";
 import { getAvailableModelHandles } from "../available-models";
 import { getClient } from "../client";
 import { getCurrentAgentId } from "../context";
+import { getMemoryFilesystemRoot } from "../memoryFilesystem";
 import { getDefaultModelForTier, resolveModel } from "../model";
 import recallSubagentPrompt from "../prompts/recall_subagent.md";
 
@@ -653,6 +653,27 @@ export function buildSubagentArgs(
   return args;
 }
 
+export function resolveMemorySubagentTargetDir(
+  parentAgentId?: string | null,
+  env: NodeJS.ProcessEnv = process.env,
+  homeDir?: string,
+): string | null {
+  const explicitParentMemoryDir = env.PARENT_MEMORY_DIR?.trim();
+  if (explicitParentMemoryDir) {
+    return explicitParentMemoryDir;
+  }
+
+  const resolvedParentAgentId =
+    parentAgentId?.trim() || env.LETTA_PARENT_AGENT_ID?.trim();
+  if (resolvedParentAgentId) {
+    return getMemoryFilesystemRoot(resolvedParentAgentId, homeDir);
+  }
+
+  const inheritedMemoryDir =
+    env.MEMORY_DIR?.trim() || env.LETTA_MEMORY_DIR?.trim();
+  return inheritedMemoryDir || null;
+}
+
 /**
  * Execute a subagent and collect its final report by spawning letta in headless mode
  */
@@ -712,7 +733,6 @@ async function executeSubagent(
     const inheritedBaseUrl =
       process.env.LETTA_BASE_URL || settings.env?.LETTA_BASE_URL;
     const subagentWorkingDirectory = resolveSubagentWorkingDirectory();
-    const inheritedMemoryRoots = resolveAllowedMemoryRoots();
     const childEnv: NodeJS.ProcessEnv = {
       ...process.env,
       ...(inheritedApiKey && { LETTA_API_KEY: inheritedApiKey }),
@@ -722,19 +742,14 @@ async function executeSubagent(
     };
 
     if (config.permissionMode === "memory") {
-      if (inheritedMemoryRoots.primaryRoot) {
-        childEnv.MEMORY_DIR = inheritedMemoryRoots.primaryRoot;
-        childEnv.LETTA_MEMORY_DIR = inheritedMemoryRoots.primaryRoot;
+      const parentMemoryDir = resolveMemorySubagentTargetDir(parentAgentId);
+      if (parentMemoryDir) {
+        childEnv.MEMORY_DIR = parentMemoryDir;
+        childEnv.LETTA_MEMORY_DIR = parentMemoryDir;
+        childEnv.PARENT_MEMORY_DIR = parentMemoryDir;
       } else {
         delete childEnv.MEMORY_DIR;
         delete childEnv.LETTA_MEMORY_DIR;
-      }
-
-      const parentMemoryDir =
-        process.env.MEMORY_DIR || process.env.LETTA_MEMORY_DIR;
-      if (parentMemoryDir && parentMemoryDir.trim().length > 0) {
-        childEnv.PARENT_MEMORY_DIR = parentMemoryDir;
-      } else {
         delete childEnv.PARENT_MEMORY_DIR;
       }
     }

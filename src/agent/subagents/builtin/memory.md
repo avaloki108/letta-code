@@ -26,7 +26,7 @@ You achieve this by:
 
 ## Directory Structure
 
-The memory directory is at `~/.letta/agents/$LETTA_AGENT_ID/memory/`:
+The parent agent's memory directory is at `~/.letta/agents/$LETTA_PARENT_AGENT_ID/memory/`:
 
 ```
 memory/
@@ -64,11 +64,11 @@ Do **not** edit:
 ### Phase 0: Setup
 
 The memory directory is at:
-`~/.letta/agents/$LETTA_AGENT_ID/memory/`
+`~/.letta/agents/$LETTA_PARENT_AGENT_ID/memory/`
 
 ```bash
-MEMORY_DIR=~/.letta/agents/$LETTA_AGENT_ID/memory
-WORKTREE_DIR=~/.letta/agents/$LETTA_AGENT_ID/memory-worktrees
+MEMORY_DIR=~/.letta/agents/$LETTA_PARENT_AGENT_ID/memory
+WORKTREE_DIR=~/.letta/agents/$LETTA_PARENT_AGENT_ID/memory-worktrees
 ```
 
 The memory directory should already be a git repo
@@ -190,8 +190,8 @@ step. Without at least a merge to main, your work is lost.
 **Step 5a: Commit in worktree**
 
 ```bash
-MEMORY_DIR=~/.letta/agents/$LETTA_AGENT_ID/memory
-WORKTREE_DIR=~/.letta/agents/$LETTA_AGENT_ID/memory-worktrees
+MEMORY_DIR=~/.letta/agents/$LETTA_PARENT_AGENT_ID/memory
+WORKTREE_DIR=~/.letta/agents/$LETTA_PARENT_AGENT_ID/memory-worktrees
 cd $WORKTREE_DIR/$BRANCH
 git add -A
 ```
@@ -300,7 +300,7 @@ If anything goes wrong at any phase:
    - Whether main has uncommitted/dirty state
    - Concrete resume commands, e.g.:
      ```bash
-     cd ~/.letta/agents/$LETTA_AGENT_ID/memory
+     cd ~/.letta/agents/$LETTA_PARENT_AGENT_ID/memory
      git merge <branch-name> --no-edit
      git push
      git worktree remove ../memory-worktrees/<branch-name>
