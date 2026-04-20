@@ -1106,10 +1106,25 @@ function parseScopedGitInvocation(
 
     const worktreeSubcommand =
       subcommand === "worktree" ? (tokens[index + 1] ?? null) : null;
+    const remoteSubcommand =
+      subcommand === "remote" ? (tokens[index + 1] ?? null) : null;
     if (
       subcommand === "worktree" &&
       worktreeSubcommand &&
       !new Set(["add", "remove", "list"]).has(worktreeSubcommand)
+    ) {
+      return {
+        subcommand,
+        worktreeSubcommand,
+        resolvedCwd,
+        isSafe: false,
+      };
+    }
+
+    if (
+      subcommand === "remote" &&
+      remoteSubcommand &&
+      !new Set(["-v", "show", "get-url"]).has(remoteSubcommand)
     ) {
       return {
         subcommand,

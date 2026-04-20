@@ -14,7 +14,7 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import { getClient } from "../../agent/client";
 import { getCurrentAgentId } from "../../agent/context";
-import { maybeUpdateMemoryRemoteOrigin } from "../../agent/memoryGit";
+import { constrainMemoryRemoteOrigin } from "../../agent/memoryGit";
 import { validateRequiredParams } from "./validation";
 
 const execFile = promisify(execFileCb);
@@ -590,7 +590,7 @@ async function commitAndPush(
   const head = await runGit(memoryDir, ["rev-parse", "HEAD"]);
   const sha = head.stdout.trim();
 
-  await maybeUpdateMemoryRemoteOrigin(memoryDir, agentId);
+  await constrainMemoryRemoteOrigin(memoryDir, agentId);
 
   try {
     await runGit(memoryDir, ["push"]);

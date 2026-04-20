@@ -213,8 +213,23 @@ describe("resolveMemorySubagentTargetDir", () => {
     );
   });
 
-  test("falls back to PARENT_MEMORY_DIR when provided explicitly", () => {
-    const targetDir = resolveMemorySubagentTargetDir("agent-parent", {
+  test("prefers the parent agent's memfs root over explicit PARENT_MEMORY_DIR", () => {
+    const targetDir = resolveMemorySubagentTargetDir(
+      "agent-parent",
+      {
+        PARENT_MEMORY_DIR: "/tmp/parent-memory",
+        MEMORY_DIR: "/tmp/stale-memory-dir",
+      } as NodeJS.ProcessEnv,
+      "/Users/test",
+    );
+
+    expect(targetDir).toBe(
+      getMemoryFilesystemRoot("agent-parent", "/Users/test"),
+    );
+  });
+
+  test("falls back to PARENT_MEMORY_DIR when parent agent id is unavailable", () => {
+    const targetDir = resolveMemorySubagentTargetDir(undefined, {
       PARENT_MEMORY_DIR: "/tmp/parent-memory",
       MEMORY_DIR: "/tmp/stale-memory-dir",
     } as NodeJS.ProcessEnv);

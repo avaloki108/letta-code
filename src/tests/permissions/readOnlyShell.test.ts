@@ -68,6 +68,15 @@ describe("isReadOnlyShellCommand", () => {
         ).toBe(true);
       });
 
+      test("denies git remote mutation in memory-scoped commands", () => {
+        expect(
+          isScopedMemoryShellCommand(
+            "cd /Users/test/.letta/agents/agent-1/memory && git remote set-url origin https://api.letta.com/v1/git/agent-2/state.git",
+            roots,
+          ),
+        ).toBe(false);
+      });
+
       test("allows env-based memory/worktree commands used by builtins", () => {
         expect(
           isScopedMemoryShellCommand(

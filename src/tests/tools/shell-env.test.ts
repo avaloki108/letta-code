@@ -259,7 +259,9 @@ test("getShellEnv preserves parent memory root for memory-mode subagents", () =>
     const originalIsMemfsEnabled =
       settingsManager.isMemfsEnabled.bind(settingsManager);
     const originalParentMemoryDir = process.env.PARENT_MEMORY_DIR;
+    const originalParentAgentId = process.env.LETTA_PARENT_AGENT_ID;
     process.env.PARENT_MEMORY_DIR = "/tmp/parent-memory-dir";
+    process.env.LETTA_PARENT_AGENT_ID = "agent-parent";
     (
       settingsManager as unknown as { isMemfsEnabled: (id: string) => boolean }
     ).isMemfsEnabled = () => false;
@@ -269,6 +271,13 @@ test("getShellEnv preserves parent memory root for memory-mode subagents", () =>
       expect(env.PARENT_MEMORY_DIR).toBe("/tmp/parent-memory-dir");
       expect(env.LETTA_MEMORY_DIR).toBe("/tmp/parent-memory-dir");
       expect(env.MEMORY_DIR).toBe("/tmp/parent-memory-dir");
+      expect(env.GIT_CONFIG_COUNT).toBe("2");
+      expect(env.GIT_CONFIG_KEY_0).toBe("remote.origin.url");
+      expect(env.GIT_CONFIG_VALUE_0).toContain(
+        "/v1/git/agent-parent/state.git",
+      );
+      expect(env.GIT_CONFIG_KEY_1).toBe("remote.origin.pushurl");
+      expect(env.GIT_CONFIG_VALUE_1).toBe(env.GIT_CONFIG_VALUE_0);
     } finally {
       (
         settingsManager as unknown as {
@@ -280,6 +289,12 @@ test("getShellEnv preserves parent memory root for memory-mode subagents", () =>
         delete process.env.PARENT_MEMORY_DIR;
       } else {
         process.env.PARENT_MEMORY_DIR = originalParentMemoryDir;
+      }
+
+      if (originalParentAgentId === undefined) {
+        delete process.env.LETTA_PARENT_AGENT_ID;
+      } else {
+        process.env.LETTA_PARENT_AGENT_ID = originalParentAgentId;
       }
     }
   });

@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { getServerUrl } from "../../agent/client";
 import { getConversationId, getCurrentAgentId } from "../../agent/context";
 import { getMemoryFilesystemRoot } from "../../agent/memoryFilesystem";
+import { getGitRemoteUrl } from "../../agent/memoryGit";
 import { settingsManager } from "../../settings-manager";
 
 /**
@@ -162,6 +163,32 @@ export function ensureLettaShimDir(invocation: LettaInvocation): string | null {
   return shimDir;
 }
 
+function appendGitConfigOverride(
+  env: NodeJS.ProcessEnv,
+  key: string,
+  value: string,
+): void {
+  const rawCount = Number.parseInt(env.GIT_CONFIG_COUNT || "0", 10);
+  const nextIndex = Number.isFinite(rawCount) && rawCount >= 0 ? rawCount : 0;
+
+  env[`GIT_CONFIG_KEY_${nextIndex}`] = key;
+  env[`GIT_CONFIG_VALUE_${nextIndex}`] = value;
+  env.GIT_CONFIG_COUNT = String(nextIndex + 1);
+}
+
+function getMemoryRemoteBaseUrl(env: NodeJS.ProcessEnv): string {
+  const explicitBaseUrl = env.LETTA_BASE_URL?.trim();
+  if (explicitBaseUrl) {
+    return explicitBaseUrl;
+  }
+
+  try {
+    return getServerUrl();
+  } catch {
+    return "https://api.letta.com";
+  }
+}
+
 /**
  * Get enhanced environment variables for shell execution.
  * Includes bundled tools (like ripgrep) in PATH and Letta context for skill scripts.
@@ -215,6 +242,7 @@ export function getShellEnv(): NodeJS.ProcessEnv {
   }
 
   const parentMemoryDir = env.PARENT_MEMORY_DIR?.trim();
+  const parentAgentId = env.LETTA_PARENT_AGENT_ID?.trim();
 
   if (agentId) {
     env.LETTA_AGENT_ID = agentId;
@@ -241,6 +269,15 @@ export function getShellEnv(): NodeJS.ProcessEnv {
   } else if (parentMemoryDir) {
     env.LETTA_MEMORY_DIR = parentMemoryDir;
     env.MEMORY_DIR = parentMemoryDir;
+  }
+
+  if (parentMemoryDir && parentAgentId) {
+    const expectedRemoteUrl = getGitRemoteUrl(
+      parentAgentId,
+      getMemoryRemoteBaseUrl(env),
+    );
+    appendGitConfigOverride(env, "remote.origin.url", expectedRemoteUrl);
+    appendGitConfigOverride(env, "remote.origin.pushurl", expectedRemoteUrl);
   }
   // Inject conversation ID if available
   let convId: string | undefined;

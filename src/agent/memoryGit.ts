@@ -148,6 +148,67 @@ export async function maybeUpdateMemoryRemoteOrigin(
   );
 }
 
+/**
+ * Constrain a local memory repo so both fetch and push target the expected
+ * memfs remote for the given agent.
+ *
+ * Unlike maybeUpdateMemoryRemoteOrigin(), this will actively rewrite a wrong
+ * origin instead of silently leaving it in place.
+ */
+export async function constrainMemoryRemoteOrigin(
+  repoDir: string,
+  agentId: string,
+): Promise<void> {
+  const expectedOrigin = normalizeRemoteUrl(getGitRemoteUrl(agentId));
+
+  let currentOrigin = "";
+  try {
+    const { stdout } = await runGit(repoDir, ["remote", "get-url", "origin"]);
+    currentOrigin = stdout.trim();
+  } catch {
+    throw new Error(
+      `Memory repo at ${repoDir} is missing an origin remote; expected ${expectedOrigin}`,
+    );
+  }
+
+  if (!currentOrigin) {
+    throw new Error(
+      `Memory repo at ${repoDir} has an empty origin remote; expected ${expectedOrigin}`,
+    );
+  }
+
+  const normalizedCurrent = normalizeRemoteUrl(currentOrigin);
+  if (normalizedCurrent !== expectedOrigin) {
+    await runGit(repoDir, ["remote", "set-url", "origin", expectedOrigin]);
+    debugLog(
+      "memfs-git",
+      `Constrained origin remote for ${agentId}: ${normalizedCurrent} -> ${expectedOrigin}`,
+    );
+  }
+
+  await runGit(repoDir, [
+    "remote",
+    "set-url",
+    "--push",
+    "origin",
+    expectedOrigin,
+  ]);
+
+  const { stdout: pushUrlStdout } = await runGit(repoDir, [
+    "remote",
+    "get-url",
+    "--push",
+    "origin",
+  ]);
+  const normalizedPushUrl = normalizeRemoteUrl(pushUrlStdout.trim());
+
+  if (normalizedPushUrl !== expectedOrigin) {
+    throw new Error(
+      `Failed to constrain push target for ${agentId}: expected ${expectedOrigin}, got ${normalizedPushUrl || "<empty>"}`,
+    );
+  }
+}
+
 /** Git remote URL for the agent's state repo */
 function getMemoryRemoteUrl(agentId: string): string {
   return getGitRemoteUrl(agentId);
@@ -617,7 +678,7 @@ export async function pushMemory(agentId: string): Promise<void> {
   const token = await getAuthToken();
   const dir = getMemoryRepoDir(agentId);
 
-  await maybeUpdateMemoryRemoteOrigin(dir, agentId);
+  await constrainMemoryRemoteOrigin(dir, agentId);
 
   await configureLocalCredentialHelper(dir, token);
 

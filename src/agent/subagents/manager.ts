@@ -30,6 +30,7 @@ import { getAvailableModelHandles } from "../available-models";
 import { getClient } from "../client";
 import { getCurrentAgentId } from "../context";
 import { getMemoryFilesystemRoot } from "../memoryFilesystem";
+import { constrainMemoryRemoteOrigin } from "../memoryGit";
 import { getDefaultModelForTier, resolveModel } from "../model";
 import recallSubagentPrompt from "../prompts/recall_subagent.md";
 
@@ -658,15 +659,15 @@ export function resolveMemorySubagentTargetDir(
   env: NodeJS.ProcessEnv = process.env,
   homeDir?: string,
 ): string | null {
-  const explicitParentMemoryDir = env.PARENT_MEMORY_DIR?.trim();
-  if (explicitParentMemoryDir) {
-    return explicitParentMemoryDir;
-  }
-
   const resolvedParentAgentId =
     parentAgentId?.trim() || env.LETTA_PARENT_AGENT_ID?.trim();
   if (resolvedParentAgentId) {
     return getMemoryFilesystemRoot(resolvedParentAgentId, homeDir);
+  }
+
+  const explicitParentMemoryDir = env.PARENT_MEMORY_DIR?.trim();
+  if (explicitParentMemoryDir) {
+    return explicitParentMemoryDir;
   }
 
   const inheritedMemoryDir =
@@ -744,6 +745,9 @@ async function executeSubagent(
     if (config.permissionMode === "memory") {
       const parentMemoryDir = resolveMemorySubagentTargetDir(parentAgentId);
       if (parentMemoryDir) {
+        if (parentAgentId) {
+          await constrainMemoryRemoteOrigin(parentMemoryDir, parentAgentId);
+        }
         childEnv.MEMORY_DIR = parentMemoryDir;
         childEnv.LETTA_MEMORY_DIR = parentMemoryDir;
         childEnv.PARENT_MEMORY_DIR = parentMemoryDir;
