@@ -82,6 +82,7 @@ function makeDefaultLegacyAccount(
       token: config.token,
       dmPolicy: config.dmPolicy,
       allowedUsers: [...config.allowedUsers],
+      transcribeVoice: config.transcribeVoice === true,
       binding: {
         agentId: null,
         conversationId: null,
