@@ -82,6 +82,7 @@ import {
   DEFAULT_SUMMARIZATION_MODEL,
   INTERRUPTED_BY_USER,
   MEMFS_CONFLICT_CHECK_INTERVAL,
+  MORPH_COMPACTION_MODEL,
   SYSTEM_ALERT_CLOSE,
   SYSTEM_ALERT_OPEN,
   SYSTEM_REMINDER_CLOSE,
@@ -9258,18 +9259,14 @@ export default function App({
 
             const client = await getClient();
 
-            // Build compaction settings if mode was specified
-            // On server side, if mode changed, summarize function will use corresponding default prompt for new mode
-            const compactParams = modeArg
-              ? {
-                  compaction_settings: {
-                    mode: modeArg,
-                    model:
-                      agentStateRef.current?.compaction_settings?.model?.trim() ||
-                      DEFAULT_SUMMARIZATION_MODEL,
-                  },
-                }
-              : undefined;
+            // Manual /compact should always route through Morph-backed compaction.
+            // Keep the existing mode unless the user explicitly overrides it.
+            const compactParams = {
+              compaction_settings: {
+                ...(modeArg ? { mode: modeArg } : {}),
+                model: MORPH_COMPACTION_MODEL,
+              },
+            };
 
             const compactConversationId = conversationIdRef.current;
             const compactBody =
