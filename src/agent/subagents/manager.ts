@@ -8,7 +8,6 @@
  */
 
 import { spawn } from "node:child_process";
-import { createInterface } from "node:readline";
 import { buildChatUrl } from "../../cli/helpers/appUrls";
 import {
   addToolCall,
@@ -27,8 +26,12 @@ import {
 } from "../../permissions/memoryScope";
 import { permissionMode } from "../../permissions/mode";
 import { sessionPermissions } from "../../permissions/session";
+import { getCurrentWorkingDirectory } from "../../runtime-context";
 import { settingsManager } from "../../settings-manager";
-import { resolveLettaInvocation } from "../../tools/impl/shellEnv";
+import {
+  resolveEntryScriptPath,
+  resolveLettaInvocation,
+} from "../../tools/impl/shellEnv";
 import { getErrorMessage } from "../../utils/error";
 import { getAvailableModelHandles } from "../available-models";
 import { getClient } from "../client";
@@ -483,6 +486,7 @@ interface ResolveSubagentLauncherOptions {
   argv?: string[];
   execPath?: string;
   platform?: NodeJS.Platform;
+  cwd?: string;
 }
 
 interface SubagentLauncher {
@@ -492,7 +496,7 @@ interface SubagentLauncher {
 
 export function resolveSubagentWorkingDirectory(
   env: NodeJS.ProcessEnv = process.env,
-  fallbackCwd: string = process.cwd(),
+  fallbackCwd: string = getCurrentWorkingDirectory(),
 ): string {
   return env.USER_CWD || fallbackCwd;
 }
@@ -505,8 +509,9 @@ export function resolveSubagentLauncher(
   const argv = options.argv ?? process.argv;
   const execPath = options.execPath ?? process.execPath;
   const platform = options.platform ?? process.platform;
+  const cwd = options.cwd ?? process.cwd();
 
-  const invocation = resolveLettaInvocation(env, argv, execPath);
+  const invocation = resolveLettaInvocation(env, argv, execPath, cwd);
   if (invocation) {
     return {
       command: invocation.command,
@@ -515,12 +520,13 @@ export function resolveSubagentLauncher(
   }
 
   const currentScript = argv[1] || "";
+  const resolvedCurrentScript = resolveEntryScriptPath(currentScript, cwd);
 
   // Preserve historical subagent behavior: any .ts entrypoint uses runtime binary.
   if (currentScript.endsWith(".ts")) {
     return {
       command: execPath,
-      args: [currentScript, ...cliArgs],
+      args: [resolvedCurrentScript, ...cliArgs],
     };
   }
 
@@ -528,13 +534,13 @@ export function resolveSubagentLauncher(
   if (currentScript.endsWith(".js") && platform === "win32") {
     return {
       command: execPath,
-      args: [currentScript, ...cliArgs],
+      args: [resolvedCurrentScript, ...cliArgs],
     };
   }
 
   if (currentScript.endsWith(".js")) {
     return {
-      command: currentScript,
+      command: resolvedCurrentScript,
       args: cliArgs,
     };
   }
@@ -721,6 +727,7 @@ async function executeSubagent(
       ...(inheritedApiKey && { LETTA_API_KEY: inheritedApiKey }),
       ...(inheritedBaseUrl && { LETTA_BASE_URL: inheritedBaseUrl }),
       LETTA_CODE_AGENT_ROLE: "subagent",
+      USER_CWD: subagentWorkingDirectory,
       ...(parentAgentId && { LETTA_PARENT_AGENT_ID: parentAgentId }),
     };
 
@@ -780,23 +787,21 @@ async function executeSubagent(
       pendingToolCalls: new Map(),
     };
 
-    // Create readline interface to parse JSON events line by line
-    const rl = createInterface({
-      input: proc.stdout,
-      crlfDelay: Number.POSITIVE_INFINITY,
-    });
+    // Parse child stdout manually instead of using readline. This keeps the
+    // stream handling simple and avoids Bun/runtime-specific instability in
+    // nested child-process line readers.
+    let stdoutBuffer = "";
+    proc.stdout.on("data", (data: Buffer | string) => {
+      const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data);
+      stdoutChunks.push(chunk);
+      stdoutBuffer += chunk.toString("utf-8");
 
-    let rlClosed = false;
-    const rlClosedPromise = new Promise<void>((resolve) => {
-      rl.once("close", () => {
-        rlClosed = true;
-        resolve();
-      });
-    });
+      const lines = stdoutBuffer.split(/\r?\n/);
+      stdoutBuffer = lines.pop() ?? "";
 
-    rl.on("line", (line: string) => {
-      stdoutChunks.push(Buffer.from(`${line}\n`));
-      processStreamEvent(line, state, subagentId);
+      for (const line of lines) {
+        processStreamEvent(line, state, subagentId);
+      }
     });
 
     proc.stderr.on("data", (data: Buffer) => {
@@ -809,12 +814,11 @@ async function executeSubagent(
       proc.on("error", () => resolve(null));
     });
 
-    // Ensure all stdout lines have been processed before completing.
+    // Ensure the trailing partial line is processed before completing.
     // Without this, late tool events can be dropped before Task marks completion.
-    if (!rlClosed) {
-      rl.close();
+    if (stdoutBuffer.length > 0) {
+      processStreamEvent(stdoutBuffer, state, subagentId);
     }
-    await rlClosedPromise;
 
     // Clean up abort listener
     signal?.removeEventListener("abort", abortHandler);

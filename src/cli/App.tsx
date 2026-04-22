@@ -115,6 +115,7 @@ import {
   resetSharedReminderState,
   syncReminderStateFromContextTracker,
 } from "../reminders/state";
+import { getCurrentWorkingDirectory } from "../runtime-context";
 import { updateProjectSettings } from "../settings";
 import { settingsManager } from "../settings-manager";
 import { telemetry } from "../telemetry";
@@ -2172,7 +2173,7 @@ export default function App({
   }, []);
   const prepareScopedToolExecutionContext = useCallback(
     async (overrideModel?: string | null) => {
-      const workingDirectory = process.env.USER_CWD || process.cwd();
+      const workingDirectory = getCurrentWorkingDirectory();
       const desiredModel = overrideModel ?? currentModelHandle;
 
       if (desiredModel) {
