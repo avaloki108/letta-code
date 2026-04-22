@@ -79,6 +79,7 @@ import {
 } from "./cli/startupFlagValidation";
 import { SYSTEM_REMINDER_CLOSE, SYSTEM_REMINDER_OPEN } from "./constants";
 import { computeDiffPreviews } from "./helpers/diffPreview";
+import { formatPermissionDenial } from "./permissions/formatDenial";
 import { QueueRuntime } from "./queue/queueRuntime";
 import {
   mergeQueuedTurnInput,
@@ -1513,19 +1514,11 @@ export async function handleHeadlessCommand(
               ? ac.permission.matchedRule
               : "auto-approved",
         })),
-        ...autoDenied.map((ac) => {
-          const fallback =
-            "matchedRule" in ac.permission && ac.permission.matchedRule
-              ? `Permission denied: ${ac.permission.matchedRule}`
-              : ac.permission.reason
-                ? `Permission denied: ${ac.permission.reason}`
-                : "Permission denied: Unknown reason";
-          return {
-            type: "deny" as const,
-            approval: ac.approval,
-            reason: ac.denyReason ?? fallback,
-          };
-        }),
+        ...autoDenied.map((ac) => ({
+          type: "deny" as const,
+          approval: ac.approval,
+          reason: formatPermissionDenial(ac.permission, ac.denyReason),
+        })),
       ];
 
       // Phase 2: Execute approved tools and format results using shared function
@@ -2260,19 +2253,11 @@ ${SYSTEM_REMINDER_CLOSE}
               reason: "Tool requires approval (headless mode)",
             };
           }),
-          ...autoDenied.map((ac) => {
-            const fallback =
-              "matchedRule" in ac.permission && ac.permission.matchedRule
-                ? `Permission denied: ${ac.permission.matchedRule}`
-                : ac.permission.reason
-                  ? `Permission denied: ${ac.permission.reason}`
-                  : "Permission denied: Unknown reason";
-            return {
-              type: "deny" as const,
-              approval: ac.approval,
-              reason: ac.denyReason ?? fallback,
-            };
-          }),
+          ...autoDenied.map((ac) => ({
+            type: "deny" as const,
+            approval: ac.approval,
+            reason: formatPermissionDenial(ac.permission, ac.denyReason),
+          })),
         ];
 
         // Phase 2: Execute all approved tools and format results using shared function
@@ -2930,19 +2915,11 @@ async function runBidirectionalMode(
               ? ac.permission.matchedRule
               : "auto-approved",
         })),
-        ...autoDenied.map((ac) => {
-          const fallback =
-            "matchedRule" in ac.permission && ac.permission.matchedRule
-              ? `Permission denied: ${ac.permission.matchedRule}`
-              : ac.permission.reason
-                ? `Permission denied: ${ac.permission.reason}`
-                : "Permission denied: Unknown reason";
-          return {
-            type: "deny" as const,
-            approval: ac.approval,
-            reason: ac.denyReason ?? fallback,
-          };
-        }),
+        ...autoDenied.map((ac) => ({
+          type: "deny" as const,
+          approval: ac.approval,
+          reason: formatPermissionDenial(ac.permission, ac.denyReason),
+        })),
       ];
 
       const { executeApprovalBatch } = await import(
@@ -3363,7 +3340,7 @@ async function runBidirectionalMode(
         ...autoDenied.map((ac) => ({
           type: "deny" as const,
           approval: ac.approval,
-          reason: ac.denyReason || ac.permission.reason || "Permission denied",
+          reason: formatPermissionDenial(ac.permission, ac.denyReason),
         })),
       ];
 
@@ -4047,19 +4024,11 @@ async function runBidirectionalMode(
                     ? ac.permission.matchedRule
                     : "auto-approved",
               })),
-              ...autoDenied.map((ac) => {
-                const fallback =
-                  "matchedRule" in ac.permission && ac.permission.matchedRule
-                    ? `Permission denied: ${ac.permission.matchedRule}`
-                    : ac.permission.reason
-                      ? `Permission denied: ${ac.permission.reason}`
-                      : "Permission denied: Unknown reason";
-                return {
-                  type: "deny" as const,
-                  approval: ac.approval,
-                  reason: ac.denyReason ?? fallback,
-                };
-              }),
+              ...autoDenied.map((ac) => ({
+                type: "deny" as const,
+                approval: ac.approval,
+                reason: formatPermissionDenial(ac.permission, ac.denyReason),
+              })),
             ];
 
             for (const approvalItem of autoAllowed) {

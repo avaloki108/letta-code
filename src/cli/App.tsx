@@ -94,6 +94,7 @@ import {
   runUserPromptSubmitHooks,
 } from "../hooks";
 import type { ApprovalContext } from "../permissions/analyzer";
+import { formatPermissionDenial } from "../permissions/formatDenial";
 import { type PermissionMode, permissionMode } from "../permissions/mode";
 import { OPENAI_CODEX_PROVIDER_NAME } from "../providers/openai-codex-provider";
 import {
@@ -5461,13 +5462,7 @@ export default function App({
 
               // Create denial results for auto-denied tools and update buffers
               autoDeniedResults = autoDenied.map((ac) => {
-                // Prefer the detailed reason over the short matchedRule name
-                // (e.g., reason contains plan file path info, matchedRule is just "plan mode")
-                const reason = ac.permission.reason
-                  ? `Permission denied: ${ac.permission.reason}`
-                  : "matchedRule" in ac.permission && ac.permission.matchedRule
-                    ? `Permission denied by rule: ${ac.permission.matchedRule}`
-                    : "Permission denied: Unknown reason";
+                const reason = formatPermissionDenial(ac.permission);
 
                 // Update buffers with tool rejection for UI
                 onChunk(buffersRef.current, {
@@ -6527,11 +6522,7 @@ export default function App({
               : [];
 
           autoDeniedResults = autoDenied.map((ac) => {
-            const reason = ac.permission.reason
-              ? `Permission denied: ${ac.permission.reason}`
-              : "matchedRule" in ac.permission && ac.permission.matchedRule
-                ? `Permission denied by rule: ${ac.permission.matchedRule}`
-                : "Permission denied: Unknown reason";
+            const reason = formatPermissionDenial(ac.permission);
 
             onChunk(buffersRef.current, {
               message_type: "tool_return_message",
@@ -7831,7 +7822,7 @@ export default function App({
 
         // Create denial results for auto-denied
         for (const ac of autoDenied) {
-          const reason = ac.permission.reason || "Permission denied";
+          const reason = formatPermissionDenial(ac.permission);
           // Update UI with denial
           onChunk(buffersRef.current, {
             message_type: "tool_return_message",
@@ -11443,13 +11434,7 @@ ${SYSTEM_REMINDER_CLOSE}
 
                 // Create denial results for auto-denied and update UI
                 autoDeniedResults = autoDenied.map((ac) => {
-                  // Prefer the detailed reason over the short matchedRule name
-                  const reason = ac.permission.reason
-                    ? `Permission denied: ${ac.permission.reason}`
-                    : "matchedRule" in ac.permission &&
-                        ac.permission.matchedRule
-                      ? `Permission denied by rule: ${ac.permission.matchedRule}`
-                      : "Permission denied: Unknown";
+                  const reason = formatPermissionDenial(ac.permission);
 
                   // Update buffers with denial for UI
                   onChunk(buffersRef.current, {
@@ -11699,13 +11684,7 @@ ${SYSTEM_REMINDER_CLOSE}
 
                 // Create denial reasons for auto-denied and update UI
                 autoDeniedWithReasons = autoDenied.map((ac) => {
-                  // Prefer the detailed reason over the short matchedRule name
-                  const reason = ac.permission.reason
-                    ? `Permission denied: ${ac.permission.reason}`
-                    : "matchedRule" in ac.permission &&
-                        ac.permission.matchedRule
-                      ? `Permission denied by rule: ${ac.permission.matchedRule}`
-                      : "Permission denied: Unknown";
+                  const reason = formatPermissionDenial(ac.permission);
 
                   // Update buffers with denial for UI
                   onChunk(buffersRef.current, {

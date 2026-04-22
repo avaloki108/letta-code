@@ -23,6 +23,7 @@ import {
 import { getRetryStatusMessage } from "../../cli/helpers/errorFormatter";
 
 import { computeDiffPreviews } from "../../helpers/diffPreview";
+import { formatPermissionDenial } from "../../permissions/formatDenial";
 import { isInteractiveApprovalTool } from "../../tools/interactivePolicy";
 import { prepareToolExecutionContextForScope } from "../../tools/toolset";
 import type { ControlRequest } from "../../types/protocol_v2";
@@ -194,7 +195,7 @@ export async function resolveStaleApprovals(
       ...autoDenied.map((ac) => ({
         type: "deny" as const,
         approval: ac.approval,
-        reason: ac.denyReason || ac.permission.reason || "Permission denied",
+        reason: formatPermissionDenial(ac.permission, ac.denyReason),
       })),
     ];
 
@@ -278,10 +279,10 @@ export async function resolveStaleApprovals(
                 ...reclassified.autoDenied.map((entry) => ({
                   type: "deny" as const,
                   approval: entry.approval,
-                  reason:
-                    entry.denyReason ||
-                    entry.permission.reason ||
-                    "Permission denied",
+                  reason: formatPermissionDenial(
+                    entry.permission,
+                    entry.denyReason,
+                  ),
                 })),
               );
               pendingNeedsUserInput = [...reclassified.needsUserInput];

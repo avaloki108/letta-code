@@ -13,6 +13,7 @@ import {
 import { getChannelRegistry } from "../../channels/registry";
 import type { ChannelTurnSource } from "../../channels/types";
 import { computeDiffPreviews } from "../../helpers/diffPreview";
+import { formatPermissionDenial } from "../../permissions/formatDenial";
 import {
   getInteractiveApprovalKind,
   isInteractiveApprovalTool,
@@ -280,7 +281,7 @@ export async function handleApprovalStop(params: {
     ...autoDenied.map((ac) => ({
       type: "deny" as const,
       approval: ac.approval,
-      reason: ac.denyReason || ac.permission.reason || "Permission denied",
+      reason: formatPermissionDenial(ac.permission, ac.denyReason),
     })),
   ];
 
@@ -408,10 +409,10 @@ export async function handleApprovalStop(params: {
               ...reclassified.autoDenied.map((entry) => ({
                 type: "deny" as const,
                 approval: entry.approval,
-                reason:
-                  entry.denyReason ||
-                  entry.permission.reason ||
-                  "Permission denied",
+                reason: formatPermissionDenial(
+                  entry.permission,
+                  entry.denyReason,
+                ),
               })),
             );
             pendingNeedsUserInput = [...reclassified.needsUserInput];
