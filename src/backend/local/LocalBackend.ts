@@ -34,9 +34,11 @@ import {
   type LocalCompactionMode,
   type LocalCompactionStats,
   type LocalGenerateTextFunction,
+  type LocalMorphCompactionOptions,
   packageLocalSummaryMessage,
   planLocalAllCompaction,
   planLocalSlidingWindowCompaction,
+  shouldUseMorphCompaction,
   summarizeLocalMessagesAll,
   summarizeLocalMessagesSlidingWindow,
 } from "./compaction";
@@ -144,6 +146,8 @@ interface ResolvedLocalCompactionSettings {
   prompt?: string | null;
   clipChars?: number | null;
   slidingWindowPercentage: number;
+  provider?: "morph";
+  morph?: LocalMorphCompactionOptions;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -164,6 +168,47 @@ function hasOwn(record: Record<string, unknown>, key: string): boolean {
 function localCompactionMode(value: unknown): LocalCompactionMode | undefined {
   if (value === "all" || value === "sliding_window") return value;
   return undefined;
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+function optionalBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+}
+
+function morphCompactionOptions(
+  settings: LocalCompactionSettingsRecord,
+): LocalMorphCompactionOptions | undefined {
+  if (!shouldUseMorphCompaction(settings.provider)) return undefined;
+  const morph = isRecord(settings.morph) ? settings.morph : {};
+  return {
+    apiKey: optionalString(morph.api_key ?? morph.apiKey),
+    apiUrl: optionalString(morph.api_url ?? morph.apiUrl),
+    compressionRatio: optionalNumber(
+      morph.compression_ratio ?? morph.compressionRatio,
+    ),
+    preserveRecent: optionalNumber(
+      morph.preserve_recent ?? morph.preserveRecent,
+    ),
+    includeMarkers: optionalBoolean(
+      morph.include_markers ?? morph.includeMarkers,
+    ),
+    includeLineRanges: optionalBoolean(
+      morph.include_line_ranges ?? morph.includeLineRanges,
+    ),
+    query: optionalString(morph.query),
+    model: optionalString(morph.model),
+  };
 }
 
 function validateLocalCompactionSettingsRecord(
@@ -589,6 +634,7 @@ export class LocalBackend extends HeadlessBackend {
 
     const mode =
       localCompactionMode(mergedSettings.mode) ?? LOCAL_DEFAULT_COMPACTION_MODE;
+    const morph = morphCompactionOptions(mergedSettings);
     return {
       mode,
       prompt:
@@ -605,6 +651,7 @@ export class LocalBackend extends HeadlessBackend {
         typeof mergedSettings.sliding_window_percentage === "number"
           ? mergedSettings.sliding_window_percentage
           : LOCAL_DEFAULT_SLIDING_WINDOW_PERCENTAGE,
+      ...(morph ? { provider: "morph" as const, morph } : {}),
     };
   }
 
@@ -676,6 +723,7 @@ export class LocalBackend extends HeadlessBackend {
       generateText: this.generateText,
       prompt: settings.prompt,
       clipChars: settings.clipChars,
+      morph: settings.morph,
       localProviderAuthStorageDir: this.storageDir,
     });
     const stats: LocalCompactionStats = {
@@ -729,6 +777,7 @@ export class LocalBackend extends HeadlessBackend {
       generateText: this.generateText,
       prompt: settings.prompt,
       clipChars: settings.clipChars,
+      morph: settings.morph,
       localProviderAuthStorageDir: this.storageDir,
     });
     const contextTokensAfter =

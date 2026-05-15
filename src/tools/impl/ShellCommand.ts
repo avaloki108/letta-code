@@ -1,5 +1,10 @@
 import { getCurrentAgentId } from "../../agent/context";
 import { isMemoryDirCommand } from "../../permissions/readOnlyShell";
+import {
+  checkBashCommandGuardrails,
+  formatBashGuardrailRejection,
+} from "../guardrails/bashGuardrails.js";
+import { annotateUntrustedShellOutput } from "../guardrails/outputSanitizer.js";
 import { resolveShellWorkdir, type ShellResult, shell } from "./Shell.js";
 import { buildShellLaunchers } from "./shellLaunchers.js";
 import { ShellExecutionError } from "./shellRunner.js";
@@ -28,9 +33,13 @@ interface ShellCommandResult {
 function normalizeShellCommandResult(
   result: ShellResult,
   resolvedWorkdir: string,
+  command: string,
 ): ShellCommandResult {
   const { content: truncatedOutput, wasTruncated } = truncateByChars(
-    result.output || "(Command completed with no output)",
+    annotateUntrustedShellOutput(
+      command,
+      result.output || "(Command completed with no output)",
+    ),
     LIMITS.BASH_OUTPUT_CHARS,
     "Bash",
     {
@@ -69,6 +78,10 @@ export async function shell_command(
     ...(secretEnv ?? {}),
   };
   const resolvedWorkdir = resolveShellWorkdir(workdir);
+  const guardrailDecision = checkBashCommandGuardrails(command);
+  if (!guardrailDecision.allowed) {
+    return { output: formatBashGuardrailRejection(guardrailDecision) };
+  }
   const launchers = buildShellLaunchers(command, {
     login,
     powershellEnvAliases: secretEnv ? Object.keys(secretEnv) : undefined,
@@ -91,7 +104,7 @@ export async function shell_command(
         signal,
         onOutput,
       });
-      return normalizeShellCommandResult(result, resolvedWorkdir);
+      return normalizeShellCommandResult(result, resolvedWorkdir, command);
     } catch (error) {
       if (error instanceof ShellExecutionError && error.code === "ENOENT") {
         tried.push(launcher[0] || "");

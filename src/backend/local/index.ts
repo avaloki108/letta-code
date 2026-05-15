@@ -1,5 +1,6 @@
 export { isContextWindowOverflowError } from "../dev/contextWindowOverflow";
 export {
+  compactLocalMessagesWithMorph,
   formatLocalMessagesForSummary,
   isLocalSlidingWindowCompactionPlanningError,
   LOCAL_ALL_COMPACTION_PROMPT,
@@ -8,8 +9,10 @@ export {
   LOCAL_SLIDING_WINDOW_COMPACTION_PROMPT,
   type LocalCompactionMode,
   type LocalCompactionStats,
+  type LocalMorphCompactionOptions,
   LocalSlidingWindowCompactionPlanningError,
   planLocalSlidingWindowCompaction,
+  shouldUseMorphCompaction,
 } from "./compaction";
 export { LocalBackend, type LocalBackendOptions } from "./LocalBackend";
 export type {

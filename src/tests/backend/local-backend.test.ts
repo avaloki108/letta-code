@@ -922,7 +922,8 @@ describe("LocalBackend", () => {
       expect(result).toEqual({
         num_messages_before: 4,
         num_messages_after: 1,
-        summary: "manual local summary",
+        summary:
+          "manual local summary\n\nRecent assistant tail anchor preserved verbatim:\npong",
       });
       expect(capturedSystem).toBe(LOCAL_ALL_COMPACTION_PROMPT);
       expect(capturedPrompt).toContain("first request");
@@ -1078,7 +1079,8 @@ describe("LocalBackend", () => {
       expect(result).toEqual({
         num_messages_before: 2,
         num_messages_after: 1,
-        summary: "fallback all summary",
+        summary:
+          "fallback all summary\n\nRecent assistant tail anchor preserved verbatim:\npong",
       });
       expect(capturedSystem).toBe(LOCAL_ALL_COMPACTION_PROMPT);
     } finally {
@@ -1229,10 +1231,132 @@ describe("LocalBackend", () => {
       expect(result).toEqual({
         num_messages_before: 4,
         num_messages_after: 1,
-        summary: "saved settings summary",
+        summary:
+          "saved settings summary\n\nRecent assistant tail anchor preserved verbatim:\npong",
       });
       expect(capturedSystem).toBe(LOCAL_ALL_COMPACTION_PROMPT);
     } finally {
+      await rm(storageDir, { recursive: true, force: true });
+    }
+  });
+
+  test("uses Morph Compact when requested by local compaction settings", async () => {
+    const storageDir = await mkdtemp(
+      join(tmpdir(), "local-backend-morph-compact-"),
+    );
+    const originalFetch = globalThis.fetch;
+    try {
+      let requestUrl: string | undefined;
+      let requestBody: Record<string, unknown> | undefined;
+      let authorization: string | null | undefined;
+      globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
+        requestUrl = String(input);
+        authorization = new Headers(init?.headers).get("authorization");
+        requestBody = JSON.parse(String(init?.body ?? "{}")) as Record<
+          string,
+          unknown
+        >;
+        return new Response(
+          JSON.stringify({ output: "morph compacted transcript" }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }) as typeof fetch;
+
+      const backend = new LocalBackend({
+        storageDir,
+        executionMode: "deterministic",
+      });
+
+      const agent = await backend.createAgent({
+        name: "Morph Compact Agent",
+        compaction_settings: {
+          mode: "all",
+          provider: "morph",
+          morph: {
+            api_key: "test-morph-key",
+            api_url: "https://morph.example/v1/compact",
+            compression_ratio: 0.4,
+            preserve_recent: 2,
+            include_markers: false,
+          },
+        },
+      } as never);
+      const conversation = await backend.createConversation({
+        agent_id: agent.id,
+      } as ConversationCreateBody);
+      await drainStream(
+        await backend.createConversationMessageStream(
+          conversation.id,
+          createBody("first request", agent.id),
+        ),
+      );
+      await drainStream(
+        await backend.createConversationMessageStream(
+          conversation.id,
+          createBody("second request", agent.id),
+        ),
+      );
+
+      const result = (await backend.compactConversationMessages(
+        conversation.id,
+      )) as { summary: string };
+
+      expect(result.summary).toBe(
+        "morph compacted transcript\n\nRecent assistant tail anchor preserved verbatim:\npong",
+      );
+      expect(requestUrl).toBe("https://morph.example/v1/compact");
+      expect(authorization).toBe("Bearer test-morph-key");
+      expect(requestBody).toMatchObject({
+        compression_ratio: 0.4,
+        include_line_ranges: false,
+        include_markers: false,
+        model: "morph-compactor",
+        preserve_recent: 2,
+      });
+      expect(requestBody?.messages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ role: "user" }),
+          expect.objectContaining({ role: "assistant" }),
+        ]),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+      await rm(storageDir, { recursive: true, force: true });
+    }
+  });
+
+  test("fails clearly when Morph compaction is requested without an API key", async () => {
+    const storageDir = await mkdtemp(
+      join(tmpdir(), "local-backend-morph-compact-missing-key-"),
+    );
+    const originalKey = process.env.MORPH_API_KEY;
+    try {
+      delete process.env.MORPH_API_KEY;
+      const backend = new LocalBackend({
+        storageDir,
+        executionMode: "deterministic",
+      });
+
+      const agent = await backend.createAgent({
+        name: "Morph Missing Key Agent",
+        compaction_settings: { mode: "all", provider: "morph" },
+      } as never);
+      const conversation = await backend.createConversation({
+        agent_id: agent.id,
+      } as ConversationCreateBody);
+      await drainStream(
+        await backend.createConversationMessageStream(
+          conversation.id,
+          createBody("first request", agent.id),
+        ),
+      );
+
+      await expect(
+        backend.compactConversationMessages(conversation.id),
+      ).rejects.toThrow("MORPH_API_KEY");
+    } finally {
+      if (originalKey === undefined) delete process.env.MORPH_API_KEY;
+      else process.env.MORPH_API_KEY = originalKey;
       await rm(storageDir, { recursive: true, force: true });
     }
   });
@@ -1287,7 +1411,9 @@ describe("LocalBackend", () => {
         summary: string;
       };
 
-      expect(result.summary).toBe("oauth compaction summary");
+      expect(result.summary).toBe(
+        "oauth compaction summary\n\nRecent assistant tail anchor preserved verbatim:\npong",
+      );
       expect(capturedSystem).toBeUndefined();
       expect(capturedProviderOptions).toMatchObject({
         openai: {

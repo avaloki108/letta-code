@@ -4,6 +4,11 @@ import { INTERRUPTED_BY_USER } from "../../constants";
 import { getCurrentWorkingDirectory } from "../../runtime-context";
 import { resolveGitWorktreeAddTargetPath } from "../../websocket/listener/worktree-ownership";
 import {
+  checkBashCommandGuardrails,
+  formatBashGuardrailRejection,
+} from "../guardrails/bashGuardrails.js";
+import { annotateUntrustedShellOutput } from "../guardrails/outputSanitizer.js";
+import {
   appendBackgroundProcessOutput,
   appendToOutputFile,
   assertBackgroundProcessCapacity,
@@ -207,6 +212,16 @@ export async function bash(args: BashArgs): Promise<BashResult> {
   } = args;
   const userCwd = getCurrentWorkingDirectory();
 
+  const guardrailDecision = checkBashCommandGuardrails(command);
+  if (!guardrailDecision.allowed) {
+    return {
+      content: [
+        { type: "text", text: formatBashGuardrailRejection(guardrailDecision) },
+      ],
+      status: "error",
+    };
+  }
+
   // Block worktree creation outside .letta/worktrees/
   const worktreeError = validateWorktreePath(command, userCwd);
   if (worktreeError) {
@@ -348,6 +363,7 @@ export async function bash(args: BashArgs): Promise<BashResult> {
 
     let output = stdout;
     if (stderr) output = output ? `${output}\n${stderr}` : stderr;
+    output = annotateUntrustedShellOutput(command, output);
 
     // Apply character limit to prevent excessive token usage
     const { content: truncatedOutput } = truncateByChars(

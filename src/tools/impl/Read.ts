@@ -8,6 +8,7 @@ import { resizeImageIfNeeded } from "../../cli/helpers/imageResize.js";
 import { SYSTEM_REMINDER_CLOSE, SYSTEM_REMINDER_OPEN } from "../../constants";
 import { getCurrentWorkingDirectory } from "../../runtime-context";
 import { debugLog } from "../../utils/debug.js";
+import { noteFileRead } from "./fileAccessTracker.js";
 import { OVERFLOW_CONFIG, writeOverflowFile } from "./overflow.js";
 import { LIMITS } from "./truncation.js";
 import { validateRequiredParams } from "./validation.js";
@@ -243,13 +244,14 @@ export async function read(args: ReadArgs): Promise<ReadResult> {
         content: `${SYSTEM_REMINDER_OPEN}\nThe file ${resolvedPath} exists but has empty contents.\n${SYSTEM_REMINDER_CLOSE}`,
       };
     }
+    const loopWarning = noteFileRead(resolvedPath, { offset, limit });
     const formattedContent = formatWithLineNumbers(
       content,
       offset,
       limit,
       userCwd,
     );
-    return { content: formattedContent };
+    return { content: `${formattedContent}${loopWarning ?? ""}` };
   } catch (error) {
     const err = error as NodeJS.ErrnoException;
     if (err.code === "ENOENT") {

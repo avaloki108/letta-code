@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { getCurrentWorkingDirectory } from "../../runtime-context";
+import { fileStalenessWarning, noteFileWrite } from "./fileAccessTracker.js";
 import { validateRequiredParams } from "./validation.js";
 
 interface WriteArgs {
@@ -19,6 +20,7 @@ export async function write(args: WriteArgs): Promise<WriteResult> {
     ? file_path
     : path.resolve(userCwd, file_path);
   try {
+    const staleWarning = fileStalenessWarning(resolvedPath);
     const dir = path.dirname(resolvedPath);
     await fs.mkdir(dir, { recursive: true });
     try {
@@ -30,8 +32,9 @@ export async function write(args: WriteArgs): Promise<WriteResult> {
       if (err.code !== "ENOENT") throw err;
     }
     await fs.writeFile(resolvedPath, content, "utf-8");
+    noteFileWrite(resolvedPath);
     return {
-      message: `Successfully wrote ${content.length} characters to ${resolvedPath}`,
+      message: `${staleWarning ? `${staleWarning}\n` : ""}Successfully wrote ${content.length} characters to ${resolvedPath}`,
     };
   } catch (error) {
     const err = error as NodeJS.ErrnoException;

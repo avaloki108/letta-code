@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { getCurrentWorkingDirectory } from "../../runtime-context";
+import { fileStalenessWarning, noteFileWrite } from "./fileAccessTracker.js";
 import { validateRequiredParams } from "./validation.js";
 
 interface EditArgs {
@@ -149,6 +150,7 @@ export async function edit(args: EditArgs): Promise<EditResult> {
       "No changes to make: old_string and new_string are exactly the same.",
     );
   try {
+    const staleWarning = fileStalenessWarning(resolvedPath);
     const rawContent = await fs.readFile(resolvedPath, "utf-8");
     // Normalize line endings to LF for consistent matching (Windows uses CRLF)
     const content = rawContent.replace(/\r\n/g, "\n");
@@ -209,9 +211,10 @@ export async function edit(args: EditArgs): Promise<EditResult> {
       replacements = 1;
     }
     await fs.writeFile(resolvedPath, newContent, "utf-8");
+    noteFileWrite(resolvedPath);
 
     return {
-      message: `Successfully replaced ${replacements} occurrence${replacements !== 1 ? "s" : ""} in ${resolvedPath}`,
+      message: `${staleWarning ? `${staleWarning}\n` : ""}Successfully replaced ${replacements} occurrence${replacements !== 1 ? "s" : ""} in ${resolvedPath}`,
       replacements,
       startLine,
     };

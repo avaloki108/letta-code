@@ -117,6 +117,28 @@ export interface LocalAllCompactionInput {
   clipChars?: number | null;
   abortSignal?: AbortSignal;
   localProviderAuthStorageDir?: string;
+  morph?: LocalMorphCompactionOptions;
+}
+
+export interface LocalMorphCompactionOptions {
+  apiKey?: string;
+  apiUrl?: string;
+  compressionRatio?: number;
+  preserveRecent?: number;
+  includeMarkers?: boolean;
+  includeLineRanges?: boolean;
+  query?: string;
+  model?: string;
+}
+
+interface MorphCompactMessage {
+  role: string;
+  content: string;
+}
+
+interface MorphCompactResponse {
+  output?: unknown;
+  messages?: Array<{ content?: unknown }>;
 }
 
 export interface LocalSlidingWindowCompactionPlan {
@@ -146,7 +168,65 @@ function stringifyUnknown(value: unknown): string {
 
 function truncateToolReturn(content: string, limit?: number): string {
   if (limit === undefined || content.length <= limit) return content;
-  return `${content.slice(0, limit)}... [truncated ${content.length - limit} chars]`;
+  const hardCut = content.slice(0, limit);
+  const newlineCut = hardCut.lastIndexOf("\n");
+  const cut = newlineCut > Math.floor(limit * 0.65) ? newlineCut : limit;
+  return `${content.slice(0, cut)}... [truncated ${content.length - cut} chars]`;
+}
+
+function stripCompactionOnlyInjections(text: string): string {
+  return text
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, "")
+    .replace(/<memory_metadata>[\s\S]*?<\/memory_metadata>/gi, "")
+    .replace(/<available_skills>[\s\S]*?<\/available_skills>/gi, "")
+    .replace(/<task-notification>[\s\S]*?<\/task-notification>/gi, (block) => {
+      const summary = block
+        .match(/<summary>([\s\S]*?)<\/summary>/i)?.[1]
+        ?.trim();
+      const taskId = block
+        .match(/<task-id>([\s\S]*?)<\/task-id>/i)?.[1]
+        ?.trim();
+      return summary
+        ? `[task-notification ${taskId ?? "unknown"}: ${summary}]`
+        : "";
+    })
+    .trim();
+}
+
+function hasLocalToolPart(message: LocalMessage): boolean {
+  return message.parts.some(
+    (part) =>
+      isRecord(part) &&
+      typeof part.type === "string" &&
+      part.type.startsWith("tool-"),
+  );
+}
+
+function extractTailAssistantText(
+  messages: LocalMessage[],
+): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (!message || message.role !== "assistant") continue;
+    const text = textFromContentParts(message.parts)?.trim();
+    if (!text) continue;
+    const paragraphs = text
+      .split(/\n{2,}/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const tail = paragraphs.at(-1) ?? text;
+    return tail.length > 1200 ? `${tail.slice(-1200)}` : tail;
+  }
+  return undefined;
+}
+
+function appendTailAnchorToSummary(
+  summary: string,
+  messages: LocalMessage[],
+): string {
+  const tail = extractTailAssistantText(messages);
+  if (!tail || summary.includes(tail)) return summary;
+  return `${summary}\n\nRecent assistant tail anchor preserved verbatim:\n${tail}`;
 }
 
 function middleTruncateText(
@@ -342,7 +422,10 @@ function simpleFormatter(messages: SummaryOpenAIMessage[]): string {
           )
           .join(" ");
       }
-      let text = typeof content === "string" ? content : "";
+      let text =
+        typeof content === "string"
+          ? stripCompactionOnlyInjections(content)
+          : "";
       if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
         const callParts = message.tool_calls.map((toolCall) => {
           const fn = toolCall.function ?? {};
@@ -357,6 +440,166 @@ function simpleFormatter(messages: SummaryOpenAIMessage[]): string {
   }
 
   return ` \n${lines.join("\n")}\n \n. Generate the summary.`;
+}
+
+function compactMessageRole(
+  role: SummaryOpenAIMessage["role"],
+): "assistant" | "system" | "tool" | "user" {
+  if (role === "assistant" || role === "system" || role === "tool") {
+    return role;
+  }
+  return "user";
+}
+
+function morphMessagesFromLocalMessages(
+  messages: LocalMessage[],
+): MorphCompactMessage[] {
+  return localMessagesToSummaryOpenAIDicts(messages, {
+    toolReturnTruncationChars: TOOL_RETURN_TRUNCATION_CHARS,
+  })
+    .map((message) => {
+      const formatted = simpleFormatter([message])
+        .replace(/^ \n/, "")
+        .replace(/\n \n\. Generate the summary\.$/, "")
+        .trim();
+      return {
+        role: compactMessageRole(message.role),
+        content: formatted,
+      };
+    })
+    .filter((message) => message.content.length > 0);
+}
+
+function latestUserText(messages: LocalMessage[]): string | undefined {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (!message) continue;
+    if (message.role !== "user") continue;
+    const text = textFromContentParts(message.parts)?.trim();
+    if (text) return text;
+  }
+  return undefined;
+}
+
+function boundedNumber(
+  value: number | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
+function envNumber(name: string): number | undefined {
+  const value = process.env[name]?.trim();
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function envBoolean(name: string): boolean | undefined {
+  const value = process.env[name]?.trim().toLowerCase();
+  if (!value) return undefined;
+  if (["1", "true", "yes", "on"].includes(value)) return true;
+  if (["0", "false", "no", "off"].includes(value)) return false;
+  return undefined;
+}
+
+export function shouldUseMorphCompaction(settingsProvider?: unknown): boolean {
+  if (settingsProvider === "morph") return true;
+  const provider = process.env.LETTA_COMPACTION_PROVIDER?.trim().toLowerCase();
+  return provider === "morph" || process.env.LETTA_USE_MORPH_COMPACTION === "1";
+}
+
+export async function compactLocalMessagesWithMorph(
+  input: LocalAllCompactionInput,
+  defaultPrompt: string,
+): Promise<string> {
+  if (input.messages.length === 0) return "No prior conversation messages.";
+  const morph = input.morph ?? {};
+  const apiKey = morph.apiKey ?? process.env.MORPH_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error("Morph compaction requested but MORPH_API_KEY is not set.");
+  }
+
+  const apiUrl =
+    morph.apiUrl ??
+    process.env.MORPH_API_URL?.trim() ??
+    "https://api.morphllm.com/v1/compact";
+  const compressionRatio = boundedNumber(
+    morph.compressionRatio ?? envNumber("LETTA_MORPH_COMPACTION_RATIO"),
+    0.5,
+    0.05,
+    1,
+  );
+  const preserveRecent = Math.max(
+    0,
+    Math.floor(
+      morph.preserveRecent ?? envNumber("LETTA_MORPH_PRESERVE_RECENT") ?? 3,
+    ),
+  );
+  const includeMarkers =
+    morph.includeMarkers ?? envBoolean("LETTA_MORPH_INCLUDE_MARKERS") ?? true;
+  const includeLineRanges =
+    morph.includeLineRanges ??
+    envBoolean("LETTA_MORPH_INCLUDE_LINE_RANGES") ??
+    false;
+
+  const response = await fetch(apiUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messages: morphMessagesFromLocalMessages(input.messages),
+      query:
+        morph.query ??
+        process.env.LETTA_MORPH_COMPACTION_QUERY?.trim() ??
+        latestUserText(input.messages) ??
+        defaultPrompt,
+      compression_ratio: compressionRatio,
+      preserve_recent: preserveRecent,
+      include_markers: includeMarkers,
+      include_line_ranges: includeLineRanges,
+      model: morph.model ?? "morph-compactor",
+    }),
+    signal: input.abortSignal,
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(
+      `Morph compaction failed (${response.status} ${response.statusText})${
+        body ? `: ${body}` : ""
+      }`,
+    );
+  }
+
+  const data = (await response.json()) as MorphCompactResponse;
+  const output = typeof data.output === "string" ? data.output : undefined;
+  const messageOutput = Array.isArray(data.messages)
+    ? data.messages
+        .map((message) =>
+          typeof message.content === "string" ? message.content : "",
+        )
+        .filter(Boolean)
+        .join("\n")
+    : undefined;
+  let summary = appendTailAnchorToSummary(
+    (output ?? messageOutput ?? "").trim(),
+    input.messages,
+  );
+  if (!summary) {
+    throw new Error("Morph compaction did not return output.");
+  }
+
+  const clipChars = input.clipChars === undefined ? 50000 : input.clipChars;
+  if (clipChars !== null && summary.length > clipChars) {
+    summary = `${summary.slice(0, clipChars)}${SUMMARY_TRUNCATION_SUFFIX}`;
+  }
+  return summary;
 }
 
 export function formatLocalMessagesForSummary(
@@ -477,7 +720,7 @@ async function summarizeLocalMessagesWithPrompt(
   if (!result) {
     throw new Error("Compaction summarizer did not return a result.");
   }
-  let summary = result.text.trim();
+  let summary = appendTailAnchorToSummary(result.text.trim(), input.messages);
   const clipChars = input.clipChars === undefined ? 50000 : input.clipChars;
   if (clipChars !== null && summary.length > clipChars) {
     summary = `${summary.slice(0, clipChars)}${SUMMARY_TRUNCATION_SUFFIX}`;
@@ -488,6 +731,9 @@ async function summarizeLocalMessagesWithPrompt(
 export async function summarizeLocalMessagesAll(
   input: LocalAllCompactionInput,
 ): Promise<string> {
+  if (input.morph) {
+    return compactLocalMessagesWithMorph(input, LOCAL_ALL_COMPACTION_PROMPT);
+  }
   return summarizeLocalMessagesWithPrompt(input, LOCAL_ALL_COMPACTION_PROMPT);
 }
 
@@ -554,33 +800,50 @@ export function planLocalSlidingWindowCompaction(
     Number.isFinite(options.contextWindow)
       ? (1 - percentage) * options.contextWindow
       : undefined;
-  let approxTokenCount = options.contextWindow ?? Number.POSITIVE_INFINITY;
+  const minimumCutoffIndex = Math.max(
+    1,
+    Math.round(percentage * messages.length),
+  );
+  const allValidCutoffIndices = messages
+    .map((message, index) => ({ message, index }))
+    .filter(({ message, index }) => {
+      if (!isValidSlidingWindowCutoff(messages, index, maximumCutoffIndex)) {
+        return false;
+      }
+      const previous = messages[index - 1];
+      // Keep tool-bearing assistant messages intact with adjacent context when possible.
+      return !(hasLocalToolPart(message) && previous?.role === "assistant");
+    })
+    .map(({ index }) => index);
+  const validCutoffIndices =
+    allValidCutoffIndices.filter((index) => index >= minimumCutoffIndex)
+      .length > 0
+      ? allValidCutoffIndices.filter((index) => index >= minimumCutoffIndex)
+      : allValidCutoffIndices;
+
   let cutoffIndex: number | undefined;
-
-  let evictionPercentage = percentage;
-  while (
-    (goalTokens === undefined
-      ? cutoffIndex === undefined
-      : approxTokenCount >= goalTokens) &&
-    evictionPercentage < 1.0
-  ) {
-    evictionPercentage += 0.1;
-    const messageCutoffIndex = Math.min(
-      Math.round(evictionPercentage * messages.length),
-      messages.length - 1,
-    );
-    cutoffIndex = [...Array(messageCutoffIndex + 1).keys()]
-      .reverse()
-      .find((index) =>
-        isValidSlidingWindowCutoff(messages, index, maximumCutoffIndex),
+  if (goalTokens === undefined) {
+    cutoffIndex = validCutoffIndices[0];
+  } else {
+    let low = 0;
+    let high = validCutoffIndices.length - 1;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const candidate = validCutoffIndices[mid];
+      if (candidate === undefined) break;
+      const approxTokenCount = estimateLocalMessageTokens(
+        messages.slice(candidate),
       );
-    if (cutoffIndex === undefined) continue;
-
-    const messagesToKeep = messages.slice(cutoffIndex);
-    approxTokenCount = estimateLocalMessageTokens(messagesToKeep);
+      if (approxTokenCount <= goalTokens) {
+        cutoffIndex = candidate;
+        high = mid - 1;
+      } else {
+        low = mid + 1;
+      }
+    }
   }
 
-  if (cutoffIndex === undefined || evictionPercentage >= 1.0) {
+  if (cutoffIndex === undefined) {
     throw new LocalSlidingWindowCompactionPlanningError(
       "No assistant message found for sliding window compaction.",
     );
@@ -619,6 +882,12 @@ export function planLocalAllCompaction(
 export async function summarizeLocalMessagesSlidingWindow(
   input: LocalAllCompactionInput,
 ): Promise<string> {
+  if (input.morph) {
+    return compactLocalMessagesWithMorph(
+      input,
+      LOCAL_SLIDING_WINDOW_COMPACTION_PROMPT,
+    );
+  }
   return summarizeLocalMessagesWithPrompt(
     input,
     LOCAL_SLIDING_WINDOW_COMPACTION_PROMPT,
